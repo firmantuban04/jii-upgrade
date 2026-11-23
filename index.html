@@ -2324,13 +2324,6 @@
             return { label: `Poin ${poin}: Beras 2 kg`, sanksi: 'Beras 2 kg', cls: 'bg-rose-600/40 border-rose-400 text-white' };
         }
 
-        function getMentorPunishmentDetail(poin) {
-            if (poin <= 0) return { label: 'Aman (0 Poin)', sanksi: '-', cls: 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200' };
-            if (poin === 1) return { label: 'Mentor 1 Poin: Setoran susulan', sanksi: 'Setoran susulan + murojaah 1 juz', cls: 'bg-blue-500/20 border-blue-400/40 text-blue-200' };
-            if (poin === 2) return { label: 'Mentor 2 Poin: Murojaah 2 juz', sanksi: 'Setoran susulan + murojaah 2 juz', cls: 'bg-indigo-500/25 border-indigo-400/50 text-indigo-200' };
-            if (poin === 3) return { label: 'Mentor 3 Poin: Tambahan hafalan', sanksi: 'Teguran mentor + tambahan hafalan & murojaah', cls: 'bg-purple-500/25 border-purple-400/50 text-purple-200' };
-            return { label: `Mentor ${poin} Poin: Menghadap Koordinator`, sanksi: 'Menghadap Koordinator Tahfidz / Mentor', cls: 'bg-rose-600/35 border-rose-400 text-white' };
-        }
 
         function getSantriWeekPoinSplit(santri, weekOffset) {
             const wObj = getSantriWeekAbsensi(santri, weekOffset, false);
@@ -2394,7 +2387,7 @@
                         item.poin.kegiatan > 0 ? `${item.poin.kegiatan} Poin` : '0',
                         getPunishmentDetail(item.poin.kegiatan).sanksi,
                         item.poin.mentor > 0 ? `${item.poin.mentor} Poin` : '0',
-                        getMentorPunishmentDetail(item.poin.mentor).sanksi
+                        getPunishmentDetail(item.poin.mentor).sanksi
                     ])
                     : [['-', 'Tidak ada santri yang terkena sanksi pada periode ini', '-', '0', '-', '0', '-']];
 
@@ -2520,7 +2513,7 @@
             const sanksiBox = document.getElementById('absensiSanksiListContainer');
             const selectedSplit = getSantriWeekPoinSplit(santri, selectedAbsensiWeekOffset);
             const pKeg = getPunishmentDetail(selectedSplit.kegiatan);
-            const pMen = getMentorPunishmentDetail(selectedSplit.mentor);
+            const pMen = getPunishmentDetail(selectedSplit.mentor);
             if (pBadge) {
                 pBadge.innerHTML = `${santri.nama}: <span class="text-amber-300">Kegiatan ${selectedSplit.kegiatan} Poin</span> • <span class="text-sky-300">Mentor ${selectedSplit.mentor} Poin</span>`;
                 pBadge.className = `px-3.5 py-2 rounded-lg border text-xs font-extrabold ${selectedSplit.total > 0 ? 'bg-rose-500/20 border-rose-400/50 text-white' : 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'}`;
@@ -2540,7 +2533,7 @@
                         sanksiBox.classList.remove('hidden');
                         sanksiBox.innerHTML = pelanggar.map(item => {
                             const dk = getPunishmentDetail(item.poin.kegiatan);
-                            const dm = getMentorPunishmentDetail(item.poin.mentor);
+                            const dm = getPunishmentDetail(item.poin.mentor);
                             return `
                                 <div class="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs space-y-1">
                                     <div class="flex items-center justify-between gap-2">
