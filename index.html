@@ -1722,6 +1722,7 @@
         };
         function saveActivitiesList() {
             try { localStorage.setItem(ACTIVITIES_STORAGE_KEY, JSON.stringify(defaultActivitiesList)); } catch (e) {}
+            syncMarkDirty();
             window.initAbsensiTab();
         }
         function renderSettingsActivitiesList() {
@@ -1759,13 +1760,17 @@
             window.showToast("Daftar kegiatan dikembalikan ke standar", "success");
         };
 
-        function saveSession(nis) {
+        let authToken = '';
+
+        function saveSession(nis, token) {
+            if (typeof token === 'string' && token) authToken = token;
             try {
-                localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ nis }));
+                localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ nis, token: authToken }));
             } catch (e) {}
         }
 
         function clearSession() {
+            authToken = '';
             try {
                 localStorage.removeItem(SESSION_STORAGE_KEY);
             } catch (e) {}
@@ -1776,6 +1781,7 @@
                 const stored = localStorage.getItem(SESSION_STORAGE_KEY);
                 if (!stored) return false;
                 const session = JSON.parse(stored);
+                if (session.token) authToken = session.token;
                 if (session.nis) {
                     const matched = masterSantriData.find(s => s.nis === session.nis);
                     if (matched) {
@@ -1828,7 +1834,18 @@
         function syncHeaders() {
             const h = { 'Content-Type': 'application/json' };
             if (SYNC_KEY) h['x-app-key'] = SYNC_KEY;
+            if (authToken) h['Authorization'] = 'Bearer ' + authToken;
             return h;
+        }
+
+        function applyRemoteActivities(acts) {
+            if (!Array.isArray(acts) || acts.length === 0) return;
+            if (JSON.stringify(acts) === JSON.stringify(defaultActivitiesList)) return;
+            defaultActivitiesList = acts.slice();
+            try { localStorage.setItem(ACTIVITIES_STORAGE_KEY, JSON.stringify(defaultActivitiesList)); } catch (e) {}
+            if (document.getElementById('tabAbsensi') && !document.getElementById('tabAbsensi').classList.contains('hidden')) {
+                window.initAbsensiTab();
+            }
         }
 
         function syncReportError(err) {
@@ -1844,7 +1861,8 @@
             const res = await fetch(SYNC_BASE + '/api/state', { headers: syncHeaders() });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const j = await res.json();
-            return (j && j.data) ? { data: j.data, version: Number(j.version) } : null;
+            if (j && j.activities) applyRemoteActivities(j.activities);
+            return (j && j.data) ? { data: j.data, version: Number(j.version), activities: j.activities || null } : null;
         }
 
         // Gabungkan per santri: perubahan lokal menang, selebihnya ikut server
@@ -1918,8 +1936,14 @@
                     const res = await fetch(SYNC_BASE + '/api/state', {
                         method: 'PUT',
                         headers: syncHeaders(),
-                        body: JSON.stringify({ expectedVersion: remote ? remote.version : null, data: toSend })
+                        body: JSON.stringify({ expectedVersion: remote ? remote.version : null, data: toSend, activities: defaultActivitiesList })
                     });
+                    if (res.status === 401) {
+                        syncDirty = false;
+                        syncSaveMeta();
+                        window.showToast('Sesi login diperlukan untuk menyimpan ke server. Silakan login ulang.', 'error');
+                        break;
+                    }
                     if (res.status === 409) { syncDirty = true; continue; }   // keduluan perangkat lain, ulangi
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const result = await res.json();
@@ -2455,11 +2479,12 @@
                     doc.text(`Halaman ${pg} / ${totalPages}`, pageW - 14, pageH - 8, { align: 'right' });
                 }
 
-                doc.save(`Daftar-Sanksi-Santri_${weekKey}.pdf`);
-                window.showToast(`PDF Daftar Sanksi (${pelanggar.length} santri) berhasil diunduh`, "success");
+                await savePdfDocument(doc, `Daftar-Sanksi-Santri_${weekKey}.pdf`, 'Daftar Santri Terkena Sanksi');
             } catch (err) {
+                const msg = String((err && err.message) || err || '');
+                if (/cancel/i.test(msg)) return;
                 console.error(err);
-                window.showToast("Gagal membuat PDF Daftar Sanksi", "error");
+                window.showToast("Gagal membuat PDF Daftar Sanksi: " + msg, "error");
             }
         };
 
@@ -2627,6 +2652,32 @@
             window.renderAbsensiTableForSantri(santri);
             if (!getAppPrefs().quietSave) window.showToast("Absensi otomatis tersimpan", "success");
         };
+
+        async function savePdfDocument(doc, fileName, shareTitle) {
+            const isNative = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+            if (isNative) {
+                const plugins = window.Capacitor.Plugins || {};
+                if (!plugins.Filesystem || !plugins.Share) {
+                    throw new Error('Plugin file belum tersedia di aplikasi. Install APK versi terbaru.');
+                }
+                const base64 = doc.output('datauristring').split(',')[1];
+                const saved = await plugins.Filesystem.writeFile({
+                    path: fileName,
+                    data: base64,
+                    directory: 'CACHE'
+                });
+                await plugins.Share.share({
+                    title: shareTitle || 'Laporan PDF JII',
+                    text: fileName,
+                    url: saved.uri,
+                    dialogTitle: 'Simpan atau bagikan PDF'
+                });
+                window.showToast("PDF siap. Pilih tujuan simpan atau bagikan.", "success");
+            } else {
+                doc.save(fileName);
+                window.showToast("PDF berhasil diunduh", "success");
+            }
+        }
 
         window.exportAbsensiToPDF = async function() {
             if (!window.canFillAbsensi()) return;
@@ -2858,32 +2909,7 @@
                 }
 
                 const fileName = `Rekap-Absensi-Semua-Santri_${weekKey}.pdf`;
-
-                const isNative = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
-                if (isNative) {
-                    // Aplikasi Android: simpan ke cache lalu buka menu Bagikan/Simpan
-                    const plugins = window.Capacitor.Plugins || {};
-                    if (!plugins.Filesystem || !plugins.Share) {
-                        throw new Error('Plugin file belum tersedia di aplikasi. Install APK versi terbaru.');
-                    }
-                    const base64 = doc.output('datauristring').split(',')[1];
-                    const saved = await plugins.Filesystem.writeFile({
-                        path: fileName,
-                        data: base64,
-                        directory: 'CACHE'
-                    });
-                    await plugins.Share.share({
-                        title: 'Rekap Absensi Semua Santri',
-                        text: fileName,
-                        url: saved.uri,
-                        dialogTitle: 'Simpan atau bagikan rekap absensi'
-                    });
-                    window.showToast("PDF siap. Pilih tujuan simpan atau bagikan.", "success");
-                } else {
-                    // Web biasa: unduh langsung
-                    doc.save(fileName);
-                    window.showToast("PDF rekap absensi berhasil diunduh", "success");
-                }
+                await savePdfDocument(doc, fileName, 'Rekap Absensi Semua Santri');
             } catch (err) {
                 const msg = String((err && err.message) || err || '');
                 if (/cancel/i.test(msg)) return; // pengguna menutup menu bagikan
@@ -3370,6 +3396,7 @@
                     }
                     if (loginRes.ok && loginOut.ok) {
                         serverVerified = true;
+                        if (loginOut.token) authToken = loginOut.token;
                     }
                 } catch (e) { /* fallback ke mode lokal jika offline */ }
                 try { await Promise.race([syncPull(true), new Promise(r => setTimeout(r, 3000))]); } catch (e) {}
@@ -3388,7 +3415,7 @@
                 loadUserIntoHeader(matched);
                 window.renderHafalanTable();
                 window.renderPaymentTable();
-                saveSession(matched.nis);
+                saveSession(matched.nis, authToken);
             } else {
                 window.showToast('Akun dengan NIS / ID tersebut tidak ditemukan!', 'error');
                 return;
@@ -3741,6 +3768,7 @@
         function dokPostHeaders() {
             const h = { 'Content-Type': 'application/json' };
             if (SYNC_KEY) h['x-app-key'] = SYNC_KEY;
+            if (authToken) h['Authorization'] = 'Bearer ' + authToken;
             return h;
         }
         function dokFormatDate(str) {

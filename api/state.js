@@ -1,9 +1,6 @@
-// Fungsi Vercel: sinkronisasi data ke database Neon (PostgreSQL).
-// Variabel lingkungan (diisi di Vercel > Settings > Environment Variables):
-//   DATABASE_URL = connection string dari Neon (wajib)
-//   APP_API_KEY  = kunci bebas buatanmu (opsional, harus sama dengan SYNC_KEY di index.html)
+// Fungsi Vercel: sinkronisasi data & daftar kegiatan ke database Neon (PostgreSQL).
 const { DB_URL, getPool, ensureTables } = require('./_db');
-const { hashPassword, sanitizeSantriForClient } = require('./_auth');
+const { hashPassword, verifySessionToken, sanitizeSantriForClient } = require('./_auth');
 
 const API_KEY = process.env.APP_API_KEY || '';
 
@@ -36,7 +33,7 @@ function readJson(req) {
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-app-key');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-app-key, Authorization, x-session-token');
     res.setHeader('Access-Control-Max-Age', '86400');
 
     if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
@@ -47,10 +44,14 @@ module.exports = async function handler(req, res) {
         await ensureTables();
 
         if (req.method === 'GET') {
-            const r = await getPool().query("SELECT data, version FROM app_state WHERE id = 'main'");
-            if (r.rows.length === 0) return sendJson(res, 200, { empty: true });
+            const [r, actRes] = await Promise.all([
+                getPool().query("SELECT data, version FROM app_state WHERE id = 'main'"),
+                getPool().query("SELECT data FROM app_state WHERE id = 'activities'")
+            ]);
+            const activities = (actRes.rows.length > 0 && Array.isArray(actRes.rows[0].data)) ? actRes.rows[0].data : null;
+            if (r.rows.length === 0) return sendJson(res, 200, { empty: true, activities });
             const safeList = Array.isArray(r.rows[0].data) ? r.rows[0].data.map(sanitizeSantriForClient) : [];
-            return sendJson(res, 200, { data: safeList, version: Number(r.rows[0].version) });
+            return sendJson(res, 200, { data: safeList, version: Number(r.rows[0].version), activities });
         }
 
         if (req.method === 'PUT') {
@@ -58,13 +59,18 @@ module.exports = async function handler(req, res) {
             try { body = await readJson(req); }
             catch (e) { return sendJson(res, 400, { error: 'Data tidak valid' }); }
 
-            const { expectedVersion, data } = body || {};
+            const { expectedVersion, data, activities } = body || {};
             if (!Array.isArray(data)) return sendJson(res, 400, { error: 'data harus berupa array' });
 
-            // Pertahankan hash password yang sudah ada di DB jika client mengirim password kosong
             const existingMap = new Map();
             const cur = await getPool().query("SELECT data FROM app_state WHERE id = 'main'");
-            if (cur.rows.length > 0 && Array.isArray(cur.rows[0].data)) {
+            const hasExistingData = cur.rows.length > 0 && Array.isArray(cur.rows[0].data) && cur.rows[0].data.length > 0;
+
+            if (hasExistingData) {
+                const sess = verifySessionToken(req);
+                if (!sess) {
+                    return sendJson(res, 401, { error: 'Sesi login tidak valid atau kedaluwarsa. Silakan login ulang.' });
+                }
                 cur.rows[0].data.forEach(item => {
                     if (item && item.nis && item.password) {
                         existingMap.set(String(item.nis), item.password);
@@ -100,6 +106,17 @@ module.exports = async function handler(req, res) {
                 );
             }
             if (r.rows.length === 0) return sendJson(res, 409, { error: 'Versi berubah, ulangi' });
+
+            if (Array.isArray(activities) && activities.length > 0) {
+                const cleanActs = activities.map(a => String(a || '').trim()).filter(Boolean);
+                if (cleanActs.length > 0) {
+                    await getPool().query(
+                        "INSERT INTO app_state (id, data, version) VALUES ('activities', $1::jsonb, 1) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, version = app_state.version + 1",
+                        [JSON.stringify(cleanActs)]
+                    );
+                }
+            }
+
             return sendJson(res, 200, { version: Number(r.rows[0].version) });
         }
 

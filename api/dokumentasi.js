@@ -1,5 +1,6 @@
 // Fungsi Vercel: dokumentasi kegiatan (daftar publik; tambah/ubah/hapus hanya untuk Ketua Umum, Mentor, Pengurus).
 const { DB_URL, getPool, ensureTables } = require('./_db');
+const { verifyPassword, verifySessionToken } = require('./_auth');
 
 const API_KEY = process.env.APP_API_KEY || '';
 const ALLOWED_ROLES = ['ketua', 'mentor', 'pengurus'];
@@ -31,15 +32,23 @@ function readJson(req) {
     });
 }
 
-// Periksa NIS + password terhadap data santri/pengurus yang tersimpan di server
-async function verifyUser(auth) {
-    if (!auth || typeof auth.nis !== 'string' || typeof auth.password !== 'string') return null;
+// Periksa token sesi atau NIS + password terhadap data santri/pengurus yang tersimpan di server
+async function verifyUser(req, auth) {
     const r = await getPool().query("SELECT data FROM app_state WHERE id = 'main'");
     if (r.rows.length === 0 || !Array.isArray(r.rows[0].data)) return null;
+    const list = r.rows[0].data;
+
+    const sess = verifySessionToken(req);
+    if (sess && sess.nis) {
+        const user = list.find(s => s && String(s.nis).toUpperCase() === String(sess.nis).toUpperCase());
+        if (user && ALLOWED_ROLES.includes(user.role)) return user;
+    }
+
+    if (!auth || typeof auth.nis !== 'string' || typeof auth.password !== 'string') return null;
     const nis = auth.nis.trim().toUpperCase();
-    const user = r.rows[0].data.find(s => s && String(s.nis).toUpperCase() === nis);
+    const user = list.find(s => s && String(s.nis).toUpperCase() === nis);
     if (!user) return null;
-    if ((user.password || '123456') !== auth.password) return null;
+    if (!verifyPassword(auth.password, user.password)) return null;
     if (!ALLOWED_ROLES.includes(user.role)) return null;
     return user;
 }
@@ -62,7 +71,7 @@ const LIST_SQL = "SELECT id, judul, tanggal, deskripsi, tautan, dibuat_oleh, diu
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-app-key');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-app-key, Authorization, x-session-token');
     res.setHeader('Access-Control-Max-Age', '86400');
 
     if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
@@ -84,7 +93,7 @@ module.exports = async function handler(req, res) {
         try { body = await readJson(req); }
         catch (e) { return sendJson(res, 400, { error: 'Data tidak valid' }); }
 
-        const user = await verifyUser(body && body.auth);
+        const user = await verifyUser(req, body && body.auth);
         if (!user) return sendJson(res, 403, { error: 'Akun tidak berhak mengubah dokumentasi' });
 
         if (body.aksi === 'hapus') {

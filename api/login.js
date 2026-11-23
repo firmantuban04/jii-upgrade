@@ -1,6 +1,6 @@
-// Fungsi Vercel: verifikasi login santri/pengurus di sisi server (password ter-hash).
+// Fungsi Vercel: verifikasi login santri/pengurus di sisi server (password ter-hash + token sesi).
 const { DB_URL, getPool, ensureTables } = require('./_db');
-const { verifyPassword, sanitizeSantriForClient } = require('./_auth');
+const { verifyPassword, createSessionToken, sanitizeSantriForClient } = require('./_auth');
 
 const API_KEY = process.env.APP_API_KEY || '';
 
@@ -33,7 +33,7 @@ function readJson(req) {
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-app-key');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-app-key, Authorization, x-session-token');
     res.setHeader('Access-Control-Max-Age', '86400');
 
     if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
@@ -66,7 +66,8 @@ module.exports = async function handler(req, res) {
             return sendJson(res, 401, { ok: false, error: 'Password salah!' });
         }
 
-        return sendJson(res, 200, { ok: true, user: sanitizeSantriForClient(matched) });
+        const token = createSessionToken(matched);
+        return sendJson(res, 200, { ok: true, token, user: sanitizeSantriForClient(matched) });
     } catch (err) {
         console.error(err);
         return sendJson(res, 500, { error: 'Kesalahan server' });
