@@ -572,6 +572,21 @@
                             </div>
                         </div>
 
+                        <div id="absensiMonthlyPunishmentBox" class="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white p-4 rounded-xl border border-emerald-700/40 shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-xl bg-amber-400/20 border border-amber-400/30 flex items-center justify-center text-amber-300">
+                                    <i class="fa-solid fa-scale-balanced"></i>
+                                </div>
+                                <div>
+                                    <p class="text-[11px] font-bold text-amber-300 uppercase tracking-wider">Rekap Bulanan &amp; Evaluasi Poin</p>
+                                    <p id="absensiMonthlySummaryText" class="text-xs text-emerald-100 mt-0.5">Tidak Hadir Bulan Ini: 0x</p>
+                                </div>
+                            </div>
+                            <div id="absensiPunishmentBadge" class="px-3.5 py-2 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs font-extrabold">
+                                Aman (0 Poin)
+                            </div>
+                        </div>
+
                         <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-md space-y-4">
                             <div class="flex flex-col lg:flex-row justify-between items-stretch lg:items-end gap-4">
                                 <div id="absensiSelectWrapper" class="w-full lg:w-1/3">
@@ -897,9 +912,38 @@
                             </button>
                             <button id="settingsBackupBtn" onclick="exportBackupJSON()" class="hidden flex-1 bg-slate-800 hover:bg-slate-900 text-amber-300 font-bold py-2.5 px-4 rounded-lg text-xs transition flex items-center justify-center gap-1.5">
                                 <i class="fa-solid fa-download"></i>
-                                <span>Backup Data (.JSON)</span>
+                                <span>Backup (.JSON)</span>
                             </button>
+                            <button id="settingsRestoreBtn" onclick="document.getElementById('settingsRestoreInput').click()" class="hidden flex-1 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-upload"></i>
+                                <span>Restore (.JSON)</span>
+                            </button>
+                            <input type="file" id="settingsRestoreInput" accept=".json,application/json" onchange="importBackupJSON(event)" class="hidden">
                         </div>
+                    </div>
+                </div>
+
+                <!-- Kelola Daftar Kegiatan Mutaba'ah (Khusus Ketua / Mentor) -->
+                <div id="settingsActivitiesWrapper" class="hidden pt-4 border-t border-slate-200">
+                    <button onclick="toggleSettingsSection('activities')" class="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-indigo-700 text-white flex items-center justify-center shadow-sm">
+                                <i class="fa-solid fa-list-check"></i>
+                            </div>
+                            <div class="text-left">
+                                <p class="font-bold text-slate-900 text-sm">Kelola Kegiatan Mutaba'ah</p>
+                                <p class="text-xs text-slate-500">Tambah atau hapus daftar kegiatan absensi harian</p>
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-slate-400 text-xs"></i>
+                    </button>
+                    <div id="activities-section" class="hidden space-y-3 mt-3 ml-3 border-l-2 border-purple-200 pl-4">
+                        <div class="flex gap-2">
+                            <input type="text" id="newActivityInput" placeholder="Nama kegiatan baru..." class="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-purple-600 focus:outline-none">
+                            <button onclick="addCustomActivity()" class="bg-purple-700 hover:bg-purple-800 text-white font-bold px-3.5 py-2 rounded-lg text-xs transition">Tambah</button>
+                        </div>
+                        <div id="settingsActivitiesList" class="space-y-1.5 max-h-40 overflow-y-auto"></div>
+                        <button onclick="resetDefaultActivities()" class="text-[11px] font-bold text-rose-600 hover:text-rose-700">Reset ke Daftar Standar</button>
                     </div>
                 </div>
             </div>
@@ -1296,7 +1340,8 @@
         const SYNC_KEY = '';   // opsional: sama dengan APP_API_KEY di hosting (jika kamu membuatnya)
         const SYNC_META_KEY = 'jii_sync_meta_v1';
 
-        const defaultActivitiesList = [
+        const ACTIVITIES_STORAGE_KEY = 'jii_activities_list_v1';
+        const BASE_DEFAULT_ACTIVITIES = [
             "qiyamul lail",
             "shalat shubuh",
             "tilawah",
@@ -1308,6 +1353,13 @@
             "1/4 binnadzor / 14 bilghoib / praktek tahsin",
             "tahsin / kitab / murojaah / kegiatan pengurus"
         ];
+        let defaultActivitiesList = (() => {
+            try {
+                const saved = JSON.parse(localStorage.getItem(ACTIVITIES_STORAGE_KEY) || 'null');
+                if (Array.isArray(saved) && saved.length > 0) return saved;
+            } catch (e) {}
+            return BASE_DEFAULT_ACTIVITIES.slice();
+        })();
 
         const initialSampleSantri = [
             {
@@ -1578,11 +1630,12 @@
                 if (kontakIn) kontakIn.value = currentUser.kontak || '';
                 if (pwdEl) pwdEl.innerText = currentUser.passwordUpdatedAt || 'Belum pernah diubah';
             }
-            const backupBtn = document.getElementById('settingsBackupBtn');
-            if (backupBtn) {
-                if (window.canManageSystem && window.canManageSystem()) backupBtn.classList.remove('hidden');
-                else backupBtn.classList.add('hidden');
-            }
+            const isAdmin = !!(window.canManageSystem && window.canManageSystem());
+            ['settingsBackupBtn', 'settingsRestoreBtn', 'settingsActivitiesWrapper'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.toggle('hidden', !isAdmin);
+            });
+            if (isAdmin) renderSettingsActivitiesList();
             refreshSettingsSyncStatus();
             document.getElementById('settingsModal')?.classList.remove('hidden');
         };
@@ -1624,6 +1677,72 @@
             a.remove();
             URL.revokeObjectURL(url);
             window.showToast("Backup data JSON berhasil diunduh", "success");
+        };
+        window.importBackupJSON = function(event) {
+            if (!window.canManageSystem || !window.canManageSystem()) return;
+            const file = event.target?.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    if (!Array.isArray(parsed) || parsed.length === 0 || !parsed[0].nis || !parsed[0].nama) {
+                        throw new Error('Format tidak sesuai');
+                    }
+                    if (!confirm(`Pulihkan ${parsed.length} data santri dari file backup ini? Data saat ini akan diganti.`)) return;
+                    masterSantriData = parsed;
+                    saveToLocal();
+                    window.filterMasterSantri();
+                    window.updateAllSummaries();
+                    window.renderHafalanTable();
+                    window.renderPaymentTable();
+                    window.initAbsensiTab();
+                    window.showToast(`Berhasil memulihkan ${parsed.length} data santri`, "success");
+                } catch (err) {
+                    window.showToast("File backup JSON tidak valid", "error");
+                } finally {
+                    event.target.value = '';
+                }
+            };
+            reader.readAsText(file);
+        };
+        function saveActivitiesList() {
+            try { localStorage.setItem(ACTIVITIES_STORAGE_KEY, JSON.stringify(defaultActivitiesList)); } catch (e) {}
+            window.initAbsensiTab();
+        }
+        function renderSettingsActivitiesList() {
+            const box = document.getElementById('settingsActivitiesList');
+            if (!box) return;
+            box.innerHTML = defaultActivitiesList.map((act, idx) => `
+                <div class="flex items-center justify-between px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+                    <span class="${act === 'ABSEN MENTOR' ? 'font-extrabold text-purple-700' : 'font-semibold text-slate-800'}">${act}</span>
+                    ${act === 'ABSEN MENTOR' ? '<span class="text-[10px] text-slate-400">Pembatas</span>' : `<button type="button" onclick="removeCustomActivity(${idx})" class="text-rose-500 hover:text-rose-700 font-bold"><i class="fa-solid fa-trash"></i></button>`}
+                </div>
+            `).join('');
+        }
+        window.addCustomActivity = function() {
+            const input = document.getElementById('newActivityInput');
+            const val = (input?.value || '').trim();
+            if (!val) { window.showToast("Nama kegiatan tidak boleh kosong", "error"); return; }
+            if (defaultActivitiesList.includes(val)) { window.showToast("Kegiatan sudah ada", "info"); return; }
+            defaultActivitiesList.push(val);
+            if (input) input.value = '';
+            saveActivitiesList();
+            renderSettingsActivitiesList();
+            window.showToast("Kegiatan ditambahkan", "success");
+        };
+        window.removeCustomActivity = function(idx) {
+            if (defaultActivitiesList[idx] === 'ABSEN MENTOR') return;
+            defaultActivitiesList.splice(idx, 1);
+            saveActivitiesList();
+            renderSettingsActivitiesList();
+            window.showToast("Kegiatan dihapus", "info");
+        };
+        window.resetDefaultActivities = function() {
+            defaultActivitiesList = BASE_DEFAULT_ACTIVITIES.slice();
+            saveActivitiesList();
+            renderSettingsActivitiesList();
+            window.showToast("Daftar kegiatan dikembalikan ke standar", "success");
         };
 
         function saveSession(nis) {
@@ -2231,6 +2350,40 @@
             document.getElementById('rekapIzinCount').innerText = totalI;
             document.getElementById('rekapPulangCount').innerText = totalP;
             document.getElementById('rekapTidakHadirCount').innerText = totalTH;
+
+            // Hitung rekap Tidak Hadir bulan berjalan & evaluasi poin punishment
+            const refDate = getWeekStartDate(selectedAbsensiWeekOffset);
+            const targetMonthPrefix = `${refDate.getFullYear()}-${String(refDate.getMonth() + 1).padStart(2, '0')}`;
+            let monthlyTH = 0;
+            const byWeek = santri.mutabaahAbsensiByWeek || {};
+            const weekKeys = Object.keys(byWeek).filter(k => k.startsWith(targetMonthPrefix));
+            if (weekKeys.length > 0) {
+                weekKeys.forEach(wk => {
+                    const wObj = byWeek[wk] || {};
+                    defaultActivitiesList.forEach(a => {
+                        if (a === "ABSEN MENTOR") return;
+                        (wObj[a] || []).forEach(s => { if (s === 'Tidak Hadir') monthlyTH++; });
+                    });
+                });
+            } else {
+                monthlyTH = totalTH;
+            }
+            const mText = document.getElementById('absensiMonthlySummaryText');
+            const pBadge = document.getElementById('absensiPunishmentBadge');
+            if (mText) mText.innerText = `Tidak Hadir Minggu Ini: ${totalTH}x • Bulan Ini: ${monthlyTH}x`;
+            if (pBadge) {
+                let label = 'Aman (0 Poin)';
+                let cls = 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200';
+                if (totalTH === 1) { label = 'Poin 1: Membersihkan masjid'; cls = 'bg-amber-500/20 border-amber-400/40 text-amber-200'; }
+                else if (totalTH === 2) { label = 'Poin 2: 5 rb + 1 juz / KM masjid'; cls = 'bg-amber-500/25 border-amber-400/50 text-amber-200'; }
+                else if (totalTH === 3) { label = 'Poin 3: 5 rb + 2 juz'; cls = 'bg-orange-500/25 border-orange-400/50 text-orange-200'; }
+                else if (totalTH === 4) { label = 'Poin 4: 5 rb + bersihkan dapur'; cls = 'bg-orange-500/30 border-orange-400/60 text-orange-200'; }
+                else if (totalTH === 5) { label = 'Poin 5: 5 rb + cuci piring'; cls = 'bg-rose-500/25 border-rose-400/50 text-rose-200'; }
+                else if (totalTH >= 6 && totalTH <= 7) { label = `Poin ${totalTH}: Beras 1 kg`; cls = 'bg-rose-500/30 border-rose-400/60 text-rose-200'; }
+                else if (totalTH >= 8) { label = `Poin ${totalTH}: Beras 2 kg`; cls = 'bg-rose-600/40 border-rose-400 text-white'; }
+                pBadge.innerText = label;
+                pBadge.className = `px-3.5 py-2 rounded-lg border text-xs font-extrabold ${cls}`;
+            }
         };
 
         window.updateAbsensiCell = function(nis, act, dayIndex, val) {
@@ -2980,18 +3133,35 @@
 
         window.handleLoginSubmit = async function(event) {
             event.preventDefault();
-            if (SYNC_ENABLED) {
-                try { await Promise.race([syncPull(true), new Promise(r => setTimeout(r, 3000))]); } catch (e) {}
-            }
             const nisInput = document.getElementById('loginNis').value.trim();
             const passwordInput = document.getElementById('loginPassword').value.trim();
+
+            let serverVerified = false;
+            if (SYNC_ENABLED) {
+                try {
+                    const loginRes = await fetch(SYNC_BASE + '/api/login', {
+                        method: 'POST',
+                        headers: syncHeaders(),
+                        body: JSON.stringify({ nis: nisInput, password: passwordInput })
+                    });
+                    const loginOut = await loginRes.json().catch(() => ({}));
+                    if (loginRes.status === 401 || loginRes.status === 404) {
+                        window.showToast(loginOut.error || 'NIS atau password salah!', 'error');
+                        return;
+                    }
+                    if (loginRes.ok && loginOut.ok) {
+                        serverVerified = true;
+                    }
+                } catch (e) { /* fallback ke mode lokal jika offline */ }
+                try { await Promise.race([syncPull(true), new Promise(r => setTimeout(r, 3000))]); } catch (e) {}
+            }
 
             const matched = masterSantriData.find(s => s.nis.toUpperCase() === nisInput.toUpperCase());
 
             if (matched) {
-                if (passwordInput !== (matched.password || '123456')) { 
-                    window.showToast('Password salah!', 'error'); 
-                    return; 
+                if (!serverVerified && passwordInput !== (matched.password || '123456')) {
+                    window.showToast('Password salah!', 'error');
+                    return;
                 }
                 currentUser = matched;
                 activeFinancialSantri = matched;
@@ -3039,6 +3209,7 @@
 
             if (currentUser) {
                 currentUser.password = newPass;
+                currentUser.passwordUpdatedAt = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
                 saveToLocal();
                 window.showToast("Password akun berhasil diubah!", "success");
             }

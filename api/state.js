@@ -2,35 +2,10 @@
 // Variabel lingkungan (diisi di Vercel > Settings > Environment Variables):
 //   DATABASE_URL = connection string dari Neon (wajib)
 //   APP_API_KEY  = kunci bebas buatanmu (opsional, harus sama dengan SYNC_KEY di index.html)
-const { Pool } = require('pg');
+const { DB_URL, getPool, ensureTables } = require('./_db');
+const { hashPassword, sanitizeSantriForClient } = require('./_auth');
 
 const API_KEY = process.env.APP_API_KEY || '';
-const DB_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
-
-let pool = null;
-let ready = null;
-
-function getPool() {
-    if (!pool) {
-        pool = new Pool({
-            connectionString: DB_URL,
-            max: 1,
-            idleTimeoutMillis: 10000,
-            ssl: /localhost|127\.0\.0\.1/.test(DB_URL) ? false : { rejectUnauthorized: false }
-        });
-        pool.on('error', e => console.error('Pool error:', e.message));
-    }
-    return pool;
-}
-
-function ensureTable() {
-    if (!ready) {
-        ready = getPool()
-            .query('CREATE TABLE IF NOT EXISTS app_state (id text PRIMARY KEY, data jsonb NOT NULL, version bigint NOT NULL DEFAULT 1)')
-            .catch(err => { ready = null; throw err; });
-    }
-    return ready;
-}
 
 function sendJson(res, status, obj) {
     res.statusCode = status;
@@ -69,12 +44,13 @@ module.exports = async function handler(req, res) {
     if (API_KEY && req.headers['x-app-key'] !== API_KEY) return sendJson(res, 401, { error: 'Kunci aplikasi salah' });
 
     try {
-        await ensureTable();
+        await ensureTables();
 
         if (req.method === 'GET') {
             const r = await getPool().query("SELECT data, version FROM app_state WHERE id = 'main'");
             if (r.rows.length === 0) return sendJson(res, 200, { empty: true });
-            return sendJson(res, 200, { data: r.rows[0].data, version: Number(r.rows[0].version) });
+            const safeList = Array.isArray(r.rows[0].data) ? r.rows[0].data.map(sanitizeSantriForClient) : [];
+            return sendJson(res, 200, { data: safeList, version: Number(r.rows[0].version) });
         }
 
         if (req.method === 'PUT') {
@@ -84,7 +60,32 @@ module.exports = async function handler(req, res) {
 
             const { expectedVersion, data } = body || {};
             if (!Array.isArray(data)) return sendJson(res, 400, { error: 'data harus berupa array' });
-            const json = JSON.stringify(data);
+
+            // Pertahankan hash password yang sudah ada di DB jika client mengirim password kosong
+            const existingMap = new Map();
+            const cur = await getPool().query("SELECT data FROM app_state WHERE id = 'main'");
+            if (cur.rows.length > 0 && Array.isArray(cur.rows[0].data)) {
+                cur.rows[0].data.forEach(item => {
+                    if (item && item.nis && item.password) {
+                        existingMap.set(String(item.nis), item.password);
+                    }
+                });
+            }
+
+            const securedData = data.map(item => {
+                if (!item || typeof item !== 'object') return item;
+                const copy = Object.assign({}, item);
+                const rawPwd = String(copy.password || '').trim();
+                if (rawPwd) {
+                    copy.password = hashPassword(rawPwd);
+                } else {
+                    const prev = existingMap.get(String(copy.nis || ''));
+                    copy.password = prev ? hashPassword(prev) : hashPassword('123456');
+                }
+                return copy;
+            });
+
+            const json = JSON.stringify(securedData);
 
             let r;
             if (expectedVersion === null || expectedVersion === undefined) {
