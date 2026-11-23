@@ -550,9 +550,9 @@
                                     <i class="fa-solid fa-file-pdf text-rose-700 text-sm"></i>
                                     <span>PDF Mingguan</span>
                                 </button>
-                                <button onclick="exportAbsensiBulananToPDF()" class="bg-white/15 hover:bg-white/25 text-white border border-white/25 font-extrabold px-4 py-3 rounded-xl text-xs shadow-lg transition flex items-center justify-center space-x-2">
-                                    <i class="fa-solid fa-calendar-days text-amber-300 text-sm"></i>
-                                    <span>PDF Bulanan</span>
+                                <button onclick="exportSanksiToPDF()" class="bg-rose-600/90 hover:bg-rose-600 text-white border border-rose-400/40 font-extrabold px-4 py-3 rounded-xl text-xs shadow-lg transition flex items-center justify-center space-x-2">
+                                    <i class="fa-solid fa-gavel text-amber-300 text-sm"></i>
+                                    <span>PDF Daftar Sanksi</span>
                                 </button>
                             </div>
                         </div>
@@ -576,19 +576,22 @@
                             </div>
                         </div>
 
-                        <div id="absensiMonthlyPunishmentBox" class="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white p-4 rounded-xl border border-emerald-700/40 shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-xl bg-amber-400/20 border border-amber-400/30 flex items-center justify-center text-amber-300">
-                                    <i class="fa-solid fa-scale-balanced"></i>
+                        <div id="absensiMonthlyPunishmentBox" class="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white p-4 rounded-xl border border-emerald-700/40 shadow-md space-y-3">
+                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center text-amber-300">
+                                        <i class="fa-solid fa-gavel"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-[11px] font-bold text-amber-300 uppercase tracking-wider">Daftar Santri Terkena Sanksi &amp; Hitungan Poin</p>
+                                        <p id="absensiMonthlySummaryText" class="text-xs text-emerald-100 mt-0.5">Memuat daftar sanksi...</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p class="text-[11px] font-bold text-amber-300 uppercase tracking-wider">Rekap Bulanan &amp; Evaluasi Poin</p>
-                                    <p id="absensiMonthlySummaryText" class="text-xs text-emerald-100 mt-0.5">Tidak Hadir Bulan Ini: 0x</p>
+                                <div id="absensiPunishmentBadge" class="px-3.5 py-2 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs font-extrabold">
+                                    Aman (0 Poin)
                                 </div>
                             </div>
-                            <div id="absensiPunishmentBadge" class="px-3.5 py-2 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs font-extrabold">
-                                Aman (0 Poin)
-                            </div>
+                            <div id="absensiSanksiListContainer" class="hidden grid grid-cols-1 md:grid-cols-2 gap-2 pt-2 border-t border-white/10 max-h-44 overflow-y-auto"></div>
                         </div>
 
                         <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-md space-y-4">
@@ -2310,71 +2313,92 @@
             window.showToast(`Semua kegiatan ${santri.nama} ditandai Hadir`, "success");
         };
 
-        window.exportAbsensiBulananToPDF = async function() {
+        function getPunishmentDetail(poin) {
+            if (poin <= 0) return { label: 'Aman (0 Poin)', sanksi: '-', cls: 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200' };
+            if (poin === 1) return { label: 'Poin 1: Membersihkan masjid', sanksi: 'Membersihkan masjid', cls: 'bg-amber-500/20 border-amber-400/40 text-amber-200' };
+            if (poin === 2) return { label: 'Poin 2: 5 rb + 1 juz / KM masjid', sanksi: 'Bayar 5 rb dan 1 juz / membersihkan KM masjid + 1 juz', cls: 'bg-amber-500/25 border-amber-400/50 text-amber-200' };
+            if (poin === 3) return { label: 'Poin 3: 5 rb + 2 juz', sanksi: '5000 + 2 juz', cls: 'bg-orange-500/25 border-orange-400/50 text-orange-200' };
+            if (poin === 4) return { label: 'Poin 4: 5 rb + dapur', sanksi: '5000 + membersihkan dapur', cls: 'bg-orange-500/30 border-orange-400/60 text-orange-200' };
+            if (poin === 5) return { label: 'Poin 5: 5 rb + cuci piring', sanksi: '5000 + cuci piring & peralatan', cls: 'bg-rose-500/25 border-rose-400/50 text-rose-200' };
+            if (poin <= 7) return { label: `Poin ${poin}: Beras 1 kg`, sanksi: 'Beras 1 kg', cls: 'bg-rose-500/30 border-rose-400/60 text-rose-200' };
+            return { label: `Poin ${poin}: Beras 2 kg`, sanksi: 'Beras 2 kg', cls: 'bg-rose-600/40 border-rose-400 text-white' };
+        }
+
+        function getSantriWeekPoin(santri, weekOffset) {
+            const wObj = getSantriWeekAbsensi(santri, weekOffset, false);
+            let th = 0;
+            defaultActivitiesList.forEach(act => {
+                if (act === "ABSEN MENTOR") return;
+                const arr = (wObj && wObj[act] && wObj[act].length === 7) ? wObj[act] : getDefaultAbsensiRow();
+                arr.forEach(s => { if (s === 'Tidak Hadir') th++; });
+            });
+            return th;
+        }
+
+        window.exportSanksiToPDF = async function() {
             if (!window.canFillAbsensi()) return;
             const rekapList = window.getAbsensiEligibleList();
             if (!rekapList || rekapList.length === 0) { window.showToast("Belum ada data santri", "error"); return; }
             if (!window.jspdf || !window.jspdf.jsPDF) { window.showToast("Library PDF belum termuat.", "error"); return; }
 
             try {
-                window.showToast("Menyiapkan Rekap Bulanan PDF...", "info");
+                window.showToast("Menyiapkan PDF Daftar Sanksi...", "info");
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
                 const pageW = doc.internal.pageSize.getWidth();
-                const refDate = getWeekStartDate(selectedAbsensiWeekOffset);
-                const monthPrefix = `${refDate.getFullYear()}-${String(refDate.getMonth() + 1).padStart(2, '0')}`;
-                const monthLabel = refDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+                const weekly = getWeeklyCalendarDates(selectedAbsensiWeekOffset);
+                const weekKey = getWeekKey(selectedAbsensiWeekOffset);
+                const periode = `${weekly[0].dayName} (${weekly[0].fullDateFormatted}) s.d. ${weekly[6].dayName} (${weekly[6].fullDateFormatted})`;
 
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(14);
-                doc.setTextColor(6, 78, 59);
+                doc.setTextColor(159, 18, 57);
                 doc.text('JEMBER ISLAMIC INSTITUTE', 14, 15);
                 doc.setFontSize(11);
                 doc.setTextColor(15, 23, 42);
-                doc.text(`REKAP ABSENSI BULANAN (${monthLabel.toUpperCase()})`, 14, 22);
-                doc.setDrawColor(6, 78, 59);
-                doc.line(14, 25, pageW - 14, 25);
+                doc.text('DAFTAR SANTRI TERKENA SANKSI & POIN PELANGGARAN', 14, 22);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(9);
+                doc.setTextColor(71, 85, 105);
+                doc.text(`Periode: ${periode}`, 14, 28);
+                doc.setDrawColor(159, 18, 57);
+                doc.line(14, 31, pageW - 14, 31);
 
-                const body = rekapList.map((santri, idx) => {
-                    const byWeek = santri.mutabaahAbsensiByWeek || {};
-                    const monthWeeks = Object.keys(byWeek).filter(k => k.startsWith(monthPrefix));
-                    let h = 0, i = 0, p = 0, th = 0, l = 0;
-                    const sources = monthWeeks.length > 0
-                        ? monthWeeks.map(wk => byWeek[wk])
-                        : [getSantriWeekAbsensi(santri, selectedAbsensiWeekOffset, false)];
-                    sources.forEach(wObj => {
-                        defaultActivitiesList.forEach(act => {
-                            if (act === "ABSEN MENTOR") return;
-                            const arr = (wObj && wObj[act] && wObj[act].length === 7) ? wObj[act] : getDefaultAbsensiRow();
-                            arr.forEach(s => {
-                                if (s === 'Hadir') h++;
-                                else if (s === 'Izin') i++;
-                                else if (s === 'Pulang') p++;
-                                else if (s === 'Tidak Hadir') th++;
-                                else if (s === 'Libur') l++;
-                            });
-                        });
-                    });
-                    const dasar = h + i + p + th;
-                    const pct = dasar > 0 ? Math.round((h / dasar) * 100) + '%' : '0%';
-                    return [idx + 1, santri.nama || '-', `${santri.kelas || '-'} / ${santri.kamar || '-'}`, sources.length + ' mg', h, i, p, th, l, pct];
-                });
+                const pelanggar = rekapList
+                    .map(santri => ({ santri, poin: getSantriWeekPoin(santri, selectedAbsensiWeekOffset) }))
+                    .filter(item => item.poin > 0)
+                    .sort((a, b) => b.poin - a.poin);
+
+                const body = pelanggar.length > 0
+                    ? pelanggar.map((item, idx) => [
+                        idx + 1,
+                        item.santri.nama || '-',
+                        `${item.santri.kelas || '-'} / ${item.santri.kamar || '-'}`,
+                        `${item.poin} Poin`,
+                        getPunishmentDetail(item.poin).sanksi
+                    ])
+                    : [['-', 'Tidak ada santri yang terkena sanksi pada periode ini', '-', '0 Poin', '-']];
 
                 doc.autoTable({
-                    startY: 30,
-                    head: [['No', 'Nama Santri', 'Kelas / Kamar', 'Pekan', 'H', 'I', 'P', 'TH', 'L', '%']],
+                    startY: 35,
+                    head: [['No', 'Nama Santri', 'Kelas / Kamar', 'Poin (TH)', 'Sanksi / Punishment']],
                     body: body,
                     theme: 'grid',
-                    styles: { fontSize: 8, cellPadding: 2, valign: 'middle' },
-                    headStyles: { fillColor: [6, 78, 59], textColor: [252, 211, 77], halign: 'center', fontStyle: 'bold' },
-                    columnStyles: { 0: { halign: 'center', cellWidth: 9 }, 3: { halign: 'center' }, 4: { halign: 'center' }, 5: { halign: 'center' }, 6: { halign: 'center' }, 7: { halign: 'center' }, 8: { halign: 'center' }, 9: { halign: 'center', fontStyle: 'bold' } }
+                    styles: { fontSize: 8.5, cellPadding: 2.5, valign: 'middle' },
+                    headStyles: { fillColor: [159, 18, 57], textColor: [255, 255, 255], halign: 'center', fontStyle: 'bold' },
+                    columnStyles: {
+                        0: { halign: 'center', cellWidth: 10 },
+                        1: { fontStyle: 'bold', cellWidth: 48 },
+                        2: { cellWidth: 36 },
+                        3: { halign: 'center', fontStyle: 'bold', cellWidth: 22, textColor: [190, 18, 60] }
+                    }
                 });
 
-                doc.save(`Rekap-Absensi-Bulanan_${monthPrefix}.pdf`);
-                window.showToast("PDF Rekap Bulanan berhasil diunduh", "success");
+                doc.save(`Daftar-Sanksi-Santri_${weekKey}.pdf`);
+                window.showToast(`PDF Daftar Sanksi (${pelanggar.length} santri) berhasil diunduh`, "success");
             } catch (err) {
                 console.error(err);
-                window.showToast("Gagal membuat PDF Bulanan", "error");
+                window.showToast("Gagal membuat PDF Daftar Sanksi", "error");
             }
         };
 
@@ -2468,38 +2492,48 @@
             document.getElementById('rekapPulangCount').innerText = totalP;
             document.getElementById('rekapTidakHadirCount').innerText = totalTH;
 
-            // Hitung rekap Tidak Hadir bulan berjalan & evaluasi poin punishment
-            const refDate = getWeekStartDate(selectedAbsensiWeekOffset);
-            const targetMonthPrefix = `${refDate.getFullYear()}-${String(refDate.getMonth() + 1).padStart(2, '0')}`;
-            let monthlyTH = 0;
-            const byWeek = santri.mutabaahAbsensiByWeek || {};
-            const weekKeys = Object.keys(byWeek).filter(k => k.startsWith(targetMonthPrefix));
-            if (weekKeys.length > 0) {
-                weekKeys.forEach(wk => {
-                    const wObj = byWeek[wk] || {};
-                    defaultActivitiesList.forEach(a => {
-                        if (a === "ABSEN MENTOR") return;
-                        (wObj[a] || []).forEach(s => { if (s === 'Tidak Hadir') monthlyTH++; });
-                    });
-                });
-            } else {
-                monthlyTH = totalTH;
-            }
+            // Evaluasi poin sanksi santri yang dipilih & daftar seluruh santri terkena sanksi minggu ini
             const mText = document.getElementById('absensiMonthlySummaryText');
             const pBadge = document.getElementById('absensiPunishmentBadge');
-            if (mText) mText.innerText = `Tidak Hadir Minggu Ini: ${totalTH}x • Bulan Ini: ${monthlyTH}x`;
+            const sanksiBox = document.getElementById('absensiSanksiListContainer');
+            const pInfo = getPunishmentDetail(totalTH);
             if (pBadge) {
-                let label = 'Aman (0 Poin)';
-                let cls = 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200';
-                if (totalTH === 1) { label = 'Poin 1: Membersihkan masjid'; cls = 'bg-amber-500/20 border-amber-400/40 text-amber-200'; }
-                else if (totalTH === 2) { label = 'Poin 2: 5 rb + 1 juz / KM masjid'; cls = 'bg-amber-500/25 border-amber-400/50 text-amber-200'; }
-                else if (totalTH === 3) { label = 'Poin 3: 5 rb + 2 juz'; cls = 'bg-orange-500/25 border-orange-400/50 text-orange-200'; }
-                else if (totalTH === 4) { label = 'Poin 4: 5 rb + bersihkan dapur'; cls = 'bg-orange-500/30 border-orange-400/60 text-orange-200'; }
-                else if (totalTH === 5) { label = 'Poin 5: 5 rb + cuci piring'; cls = 'bg-rose-500/25 border-rose-400/50 text-rose-200'; }
-                else if (totalTH >= 6 && totalTH <= 7) { label = `Poin ${totalTH}: Beras 1 kg`; cls = 'bg-rose-500/30 border-rose-400/60 text-rose-200'; }
-                else if (totalTH >= 8) { label = `Poin ${totalTH}: Beras 2 kg`; cls = 'bg-rose-600/40 border-rose-400 text-white'; }
-                pBadge.innerText = label;
-                pBadge.className = `px-3.5 py-2 rounded-lg border text-xs font-extrabold ${cls}`;
+                pBadge.innerText = `${santri.nama}: ${pInfo.label}`;
+                pBadge.className = `px-3.5 py-2 rounded-lg border text-xs font-extrabold ${pInfo.cls}`;
+            }
+            if (canFill) {
+                const pelanggar = window.getAbsensiEligibleList()
+                    .map(s => ({ santri: s, poin: getSantriWeekPoin(s, selectedAbsensiWeekOffset) }))
+                    .filter(item => item.poin > 0)
+                    .sort((a, b) => b.poin - a.poin);
+                if (mText) {
+                    mText.innerText = pelanggar.length > 0
+                        ? `${pelanggar.length} santri terkena sanksi pada minggu ini`
+                        : 'Semua santri aman (0 sanksi pada minggu ini)';
+                }
+                if (sanksiBox) {
+                    if (pelanggar.length > 0) {
+                        sanksiBox.classList.remove('hidden');
+                        sanksiBox.innerHTML = pelanggar.map(item => {
+                            const d = getPunishmentDetail(item.poin);
+                            return `
+                                <div class="flex items-center justify-between gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs">
+                                    <div class="min-w-0">
+                                        <p class="font-bold text-white truncate">${item.santri.nama}</p>
+                                        <p class="text-[10px] text-emerald-200/80 truncate">${item.santri.kelas || '-'} / ${item.santri.kamar || '-'} • ${d.sanksi}</p>
+                                    </div>
+                                    <span class="shrink-0 px-2 py-1 rounded-md bg-rose-500/30 border border-rose-400/50 text-amber-200 font-extrabold text-[11px]">${item.poin} Poin</span>
+                                </div>
+                            `;
+                        }).join('');
+                    } else {
+                        sanksiBox.classList.add('hidden');
+                        sanksiBox.innerHTML = '';
+                    }
+                }
+            } else {
+                if (mText) mText.innerText = `Status sanksi Anda minggu ini (${totalTH} Tidak Hadir)`;
+                if (sanksiBox) sanksiBox.classList.add('hidden');
             }
         };
 
