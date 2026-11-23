@@ -2409,6 +2409,52 @@
                     }
                 });
 
+                const pageH = doc.internal.pageSize.getHeight();
+                let y = doc.lastAutoTable.finalY + 6;
+                if (y + 12 > pageH - 14) { doc.addPage(); y = 20; }
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.setTextColor(100, 116, 139);
+                doc.text('Keterangan Poin: 1x Tidak Hadir (TH) = 1 Poin. Poin Absen Kegiatan dan Poin Absen Mentor dihitung terpisah masing-masing sesuai daftar Punishment di bawah ini.', 14, y, { maxWidth: pageW - 28 });
+                y += 8;
+
+                const punishmentLines = [
+                    'Poin 1: Membersihkan masjid',
+                    'Poin 2: Bayar 5 rb dan 1 juz / membersihkan KM masjid + 1 juz',
+                    'Poin 3: 5000 + 2 juz',
+                    'Poin 4: 5000 + membersihkan dapur',
+                    'Poin 5: 5000 + cuci piring & peralatan',
+                    'Poin 6-7: Beras 1 kg',
+                    'Poin 8-10: Beras 2 kg'
+                ];
+                const boxH = 12 + punishmentLines.length * 5;
+                if (y + boxH > pageH - 14) { doc.addPage(); y = 20; }
+                doc.setFillColor(255, 241, 242);
+                doc.setDrawColor(190, 18, 60);
+                doc.setLineWidth(0.4);
+                doc.roundedRect(14, y, pageW - 28, boxH, 2, 2, 'FD');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(10);
+                doc.setTextColor(159, 18, 57);
+                doc.text('KETERANGAN POIN & PUNISHMENT', 18, y + 7);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(9);
+                doc.setTextColor(15, 23, 42);
+                punishmentLines.forEach((line, n) => {
+                    doc.text(line, 18, y + 13 + n * 5);
+                });
+
+                const dicetak = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+                const totalPages = doc.internal.getNumberOfPages();
+                for (let pg = 1; pg <= totalPages; pg++) {
+                    doc.setPage(pg);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8);
+                    doc.setTextColor(148, 163, 184);
+                    doc.text(`Dicetak: ${dicetak} | Jember Islamic Institute`, 14, pageH - 8);
+                    doc.text(`Halaman ${pg} / ${totalPages}`, pageW - 14, pageH - 8, { align: 'right' });
+                }
+
                 doc.save(`Daftar-Sanksi-Santri_${weekKey}.pdf`);
                 window.showToast(`PDF Daftar Sanksi (${pelanggar.length} santri) berhasil diunduh`, "success");
             } catch (err) {
